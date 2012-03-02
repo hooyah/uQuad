@@ -1,3 +1,11 @@
+//
+// This code is distributed under the GNU General Public License
+// which can be found at http://www.gnu.org/licenses/gpl.txt
+// It is meant for information purposes only and is in no way guaranteed
+// to be accurate, bug free or even working.
+// Use it at your own risk.
+// 
+
 #include "ITG3200.h"
 #include "i2c.h"
 #include "util/delay.h"
