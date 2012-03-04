@@ -19,6 +19,10 @@
 #define max(A, B) (((A)>(B))?(A):(B))
 #define clamp(MIN, MAX, VAL) max(MIN, min(MAX, VAL))
 
+
+#define CTRL_FREQ 100.0f // (Hz)
+#define CTRL_DT (1.0f / CTRL_FREQ)
+
 // these values map rpm in % to dutycycles
 // (not currently used)
 static u08 motor_lut[4][11] = 
@@ -147,7 +151,7 @@ void calc_tilt_roll(s16* ac, float *outTilt, float *outRoll)
 
 
 
-inline
+/*inline
 float PID(const float Error, float* lastError, float *Integ, 
 			const float Kp, const float Ki, const float Kd)
 {
@@ -165,7 +169,7 @@ float Output;
      
     //return Output;
 	return clamp(-30.f, 30.f, Output);
-}
+}*/
 
 
 
@@ -318,6 +322,29 @@ float PD(const float Error, const float dError,
 {
 	return clamp(-maxP, maxP, -Error * Kp) + clamp(-maxD, maxD, dError * Kd);
 }
+inline
+float PDcl(const float Error, const float dError, 
+			const float Kp, const float Kd,
+			const float max)
+{
+	return clamp(-max, max, (-Error * Kp) + (dError * Kd));
+}
+
+inline
+float PID(const float Error, const float dError, const float iError,
+			const float Kp, const float Kd, const float Ki,
+			const float maxP, const float maxD, const float maxI)
+{
+	return clamp(-maxP, maxP, -Error * Kp) + clamp(-maxD, maxD, dError * Kd) + clamp(-maxI, maxI, -iError * Ki);
+}
+inline
+float PIDcl(const float Error, const float dError, const float iError,
+			const float Kp, const float Kd, const float Ki,
+			const float max)
+{
+	return clamp(-max, max, (-Error * Kp) + (dError * Kd) + (-iError * Ki));
+}
+
 
 inline
 float signedSqrt(const float val)
@@ -461,13 +488,12 @@ float sqrt_approx(float z)
 // the idea being that the gyro does most of the work but the accelerometer
 // pulls/corrects the gyro data slowly towards the absolute 
 // works well too, but is prone to stable oscillation
-/*void calculate_balance(const u08 Thrust, const s08 Yaw, const s08 Pitch, const s08 Roll)
+void calculate_balance(const u08 Thrust, const s08 Yaw, const s08 Pitch, const s08 Roll)
 {
 static float accu_tilt = 0;
 static float accu_roll = 0;
 static float gyro_weight = 1;
-static float last_tilt = 0;
-static float last_roll = 0;
+static float iTilt = 0, iRoll = 0;
 
 	// read the sensors
 	//
@@ -489,50 +515,54 @@ static float last_roll = 0;
 	gyro[1] -= gyro_0y;
 	gyro[2] -= gyro_0z;
 
-	// convert sensor data in degrees(/s)
-	float tilt, roll, yaw;
-	calc_tilt_roll(acc, &tilt, &roll);
+	// convert sensor data to degrees(/s)
 	float dTilt, dRoll, dYaw;
 	dTilt = (float)gyro[0] / -14.375;
 	dRoll = (float)gyro[1] / -14.375;
 	dYaw  = (float)gyro[2] / -14.375;
 
-	// weight the gyro vs accel
-	accu_tilt -= dTilt / 100.0f; // this loop runs at 100Hz
-	accu_roll -= dRoll / 100.0f;
+	// integrate the gyro input
+	accu_tilt -= dTilt * CTRL_DT; // this loop runs at 100Hz
+	accu_roll -= dRoll * CTRL_DT;
 
-	// in case there is a large discrepancy between what the gyro thinks just happened and what the accelerometer measured
-	// the gyro wins. when it get quieter the accel is used to to fix any introduced bias
-	float acc_dTilt = (tilt - last_tilt) + dTilt / 100.0f;
-	float acc_dRoll = (roll - last_roll) + dRoll / 100.0f;
-	last_tilt = tilt;
-	last_roll = roll;
+	// calculate tilt/roll from accel
+	float tilt, roll, yaw;
+	calc_tilt_roll(acc, &tilt, &roll);
 
-	//rprintf("%d,%d\n", (int)tilt, (int)roll);
-	//uartSendTxBuffer();
-
-	//gyro_weight += -sqrt(acc_dTilt*acc_dTilt+acc_dRoll*acc_dRoll)/100.0 + 0.03;
-	//gyro_weight = clamp(0.0f,1.0f,gyro_weight);
 	gyro_weight = 0.01;
 	float invgw = 1.0f - gyro_weight;
-
 	accu_tilt = accu_tilt * invgw + tilt * gyro_weight;
 	accu_roll = accu_roll * invgw + roll * gyro_weight;
+
 
 	// calculate the error and response
 	int rtilt = tilt;
 	int rroll = roll;
-	tilt = accu_tilt + Pitch;
-	roll = accu_roll + Roll;
+	tilt = accu_tilt + Pitch * Gain;
+	roll = accu_roll + Roll * Gain;
 	yaw  = -(float)Yaw;
-	float resTilt = PD(tilt, dTilt, PID_Kp, PID_Kd, 5000.0f, 5000.0f);  // clamp to sqrt(5000+5000)=100
-	float resRoll = PD(roll, dRoll, PID_Kp, PID_Kd, 5000.0f, 5000.0f);
-	float resYaw  = PD( yaw, dYaw,  PID_Kp_yaw, PID_Kd_yaw, 5000.0f, 5000.0f);
-	
+
+	//integrate the error
+	iTilt += tilt * CTRL_DT;
+	iRoll += roll * CTRL_DT;
+
+//	float resTilt = PID(tilt, dTilt, iTilt, PID_Kp, PID_Kd, PID_Ki, 4000.0f, 3000.0f, 3000.0f);  // clamp to sqrt(4000+3000+3000)=100
+//	float resRoll = PID(roll, dRoll, iRoll, PID_Kp, PID_Kd, PID_Ki, 4000.0f, 3000.0f, 3000.0f);
+	float resTilt = PIDcl(tilt, dTilt, iTilt, PID_Kp, PID_Kd, PID_Ki, 2500.0f);  // clamp to sqrt(2500)=50
+	float resRoll = PIDcl(roll, dRoll, iRoll, PID_Kp, PID_Kd, PID_Ki, 2500.0f);
+
+//	float resTilt = PD(tilt, dTilt, PID_Kp, PID_Kd, 5000.0f, 5000.0f);  // clamp to sqrt(2500)=50
+//	float resRoll = PD(roll, dRoll, PID_Kp, PID_Kd, 5000.0f, 5000.0f);
+//	float resYaw  = PD( yaw, dYaw,  PID_Kp_yaw, PID_Kd_yaw, 5000.0f, 5000.0f);
+
+//	float resTilt = PDcl(tilt, dTilt, PID_Kp, PID_Kd, 2500.0f);  // clamp to sqrt(2500)=50
+//	float resRoll = PDcl(roll, dRoll, PID_Kp, PID_Kd, 2500.0f);
+	float resYaw  = PDcl( yaw, dYaw,  PID_Kp_yaw, PID_Kd_yaw, 2500.0f);
+
 	//response is thrust, thrust = rpm^2
 	// convert thrust to rpm
 	s08 outT, outR, outY;
-	outT = round(signedSqrt(resTilt));  // +-100
+	outT = round(signedSqrt(resTilt));  // +-50
 	outR = round(signedSqrt(resRoll));
 	outY = round(signedSqrt(resYaw));
 
@@ -558,50 +588,55 @@ static float last_roll = 0;
 	b += outY;
 	c -= outY;
 	d += outY;
-	
+
 
 	u08 bottom = 10;
-	if(thr <= bottom)
+	if(thr <= bottom) // switch off stabilizer when on the ground
 	{
 		motorDuty[0] = thr;
 		motorDuty[1] = thr;
 		motorDuty[2] = thr;
 		motorDuty[3] = thr;
+
+		// reset integrator
+		iTilt = iRoll = 0;
 	}
 	else
 	{
-		motorDuty[0] = clamp(bottom, 180, a);
-		motorDuty[1] = clamp(bottom, 180, b);
-		motorDuty[2] = clamp(bottom, 180, c);
-		motorDuty[3] = clamp(bottom, 180, d);
+		motorDuty[0] = clamp(bottom, 255, a);
+		motorDuty[1] = clamp(bottom, 255, b);
+		motorDuty[2] = clamp(bottom, 255, c);
+		motorDuty[3] = clamp(bottom, 255, d);
 	}
 	setMotorSpeeds();
-	
+
+
+
 
 	static u08 skip = 0;
-	if(skip & 16)
+	if(skip++ & 16)
 	{
 		skip = 0;
 
 		if(xbee_readyToSend()) {
 
-			rprintf("$S,%d,%d,%d,%d*\n", (int)(gyro_weight*50), 0, (int)accu_tilt, (int)accu_roll);
+			rprintf("$S,%d,%d,%d,%d*\n", (int)(resTilt), (int)(resRoll), (int)accu_tilt, (int)accu_roll);
 			uartSendTxBuffer();
 		}
 	}
-	else
-		skip++;
 
 
 }
-*/
+
+
+
 
 
 
 
 // gyro only
 // best flight characteristics but without auto leveling
-
+/*
 void calculate_balance(const u08 Thrust, const s08 Yaw, const s08 Pitch, const s08 Roll)
 {
 
@@ -701,7 +736,7 @@ void calculate_balance(const u08 Thrust, const s08 Yaw, const s08 Pitch, const s
 
 
 }
-
+*/
 
 //Timer0 overflow interrupt
 SIGNAL(SIG_OVERFLOW0)
