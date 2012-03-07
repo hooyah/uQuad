@@ -32,7 +32,7 @@ void lis3l_init()
 }
 
 
-u08 lis3l_ReadRegister(u08 addr)
+u08 lis3l_ReadRegister(const u08 addr)
 {
 	lis3l_select();
 	spiTransferByte(addr|BT(7));
@@ -41,7 +41,21 @@ u08 lis3l_ReadRegister(u08 addr)
 	return inb(SPDR);
 }
 
-void lis3l_WriteRegister(u08 addr, u08 data)
+void lis3l_ReadRegisters(const u08 addr, u08 *data, u08 numRegs)
+{
+	lis3l_select();
+	spiTransferByte(addr|BT(7)|BT(6));
+	do {
+		*data = spiTransferByte(0);
+		data++;
+		numRegs--;
+	}while(numRegs > 0);
+	lis3l_deselect();
+	return;
+}
+
+
+void lis3l_WriteRegister(const u08 addr, const u08 data)
 {
 	lis3l_select();
 	spiTransferByte(addr&(~BT(7)));
@@ -51,7 +65,7 @@ void lis3l_WriteRegister(u08 addr, u08 data)
 }
 
 
-s16 lis3l_GetAccel(u08 chxyz)
+s16 lis3l_GetAccel(const u08 chxyz)
 {
 	s16 value;
 	
@@ -62,6 +76,23 @@ s16 lis3l_GetAccel(u08 chxyz)
 
 	return value;
 }
+
+
+void lis3l_GetAccels(s16* channel)
+{
+u08 data[6];
+
+	lis3l_ReadRegisters(LIS3L02_REG_OUTXL, data, 6);
+
+	*channel = data[0] | ((s16)data[1] << 8);
+	channel++;
+	*channel = data[2] | ((s16)data[3] << 8);
+	channel++;
+	*channel = data[4] | ((s16)data[5] << 8);
+
+	return;
+}
+
 
 
 u08 lis3l_Reset(void)

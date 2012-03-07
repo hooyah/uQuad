@@ -28,11 +28,15 @@
 
 void lis3l_init();
 
-u08  lis3l_ReadRegister(u08 addr);
+u08  lis3l_ReadRegister(const u08 addr);
 
-void lis3l_WriteRegister(u08 addr, u08 data);
+void lis3l_ReadRegisters(const u08 addr, u08 *data, u08 numRegs);
 
-s16  lis3l_GetAccel(u08 chxyz);
+void lis3l_WriteRegister(const u08 addr, const u08 data);
+
+s16  lis3l_GetAccel(const u08 chxyz);
+
+void lis3l_GetAccels(s16* channel);
 
 u08	 lis3l_Reset(void);
 
