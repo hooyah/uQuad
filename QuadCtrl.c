@@ -109,11 +109,11 @@ void init_peripherals()
 
 
 	// I2C
-	i2cInit();
+	itg3200_i2cInit(200);
 	sbi(PORTC, 0);	// i2c SCL on ATmega163,323,16,32,etc
 	sbi(PORTC, 1);	// i2c SDA on ATmega163,323,16,32,etc
 	cbi(TWCR, TWIE); // disable interrupt
-	i2cSetBitrate(200); // todo, check if if w ecan do 200
+//	itg3200_i2cSetBitrate(200); // todo, check if if w ecan do 200
 
 	// SPI
 	mySpiInit();

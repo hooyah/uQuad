@@ -35,10 +35,10 @@ HEX_EEPROM_FLAGS += --change-section-lma .eeprom=0 --no-change-warnings
 
 
 ## Include Directories
-INCLUDES = -I"D:\projects\avr\start\QuadCtrl\..\..\avrlib" -I"D:\projects\avr\start\QuadCtrl\." 
+INCLUDES = -I"D:\projects\avr\start\uQuad\..\..\avrlib" -I"D:\projects\avr\start\uQuad\." 
 
 ## Objects that must be built in order to link
-OBJECTS = QuadCtrl.o timer.o uart.o buffer.o rprintf.o lis3lv02_spi.o spi.o i2c.o ITG3200.o ctrl.o a2d.o 
+OBJECTS = QuadCtrl.o timer.o uart.o buffer.o rprintf.o lis3lv02_spi.o spi.o ITG3200.o ctrl.o a2d.o 
 
 ## Objects explicitly added by the user
 LINKONLYOBJECTS = 
@@ -66,9 +66,6 @@ lis3lv02_spi.o: ../lis3lv02_spi.c
 	$(CC) $(INCLUDES) $(CFLAGS) -c  $<
 
 spi.o: ../../../avrlib/spi.c
-	$(CC) $(INCLUDES) $(CFLAGS) -c  $<
-
-i2c.o: ../../../avrlib/i2c.c
 	$(CC) $(INCLUDES) $(CFLAGS) -c  $<
 
 ITG3200.o: ../ITG3200.c

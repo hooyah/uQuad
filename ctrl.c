@@ -315,13 +315,7 @@ static float angle[3] ={0,0,0};	// gyro integration result
 
 */
 
-inline
-float PD(const float Error, const float dError, 
-			const float Kp, const float Kd,
-			const float maxP, const float maxD)
-{
-	return clamp(-maxP, maxP, -Error * Kp) + clamp(-maxD, maxD, dError * Kd);
-}
+
 inline
 float PDcl(const float Error, const float dError, 
 			const float Kp, const float Kd,
@@ -330,13 +324,7 @@ float PDcl(const float Error, const float dError,
 	return clamp(-max, max, (-Error * Kp) + (dError * Kd));
 }
 
-inline
-float PID(const float Error, const float dError, const float iError,
-			const float Kp, const float Kd, const float Ki,
-			const float maxP, const float maxD, const float maxI)
-{
-	return clamp(-maxP, maxP, -Error * Kp) + clamp(-maxD, maxD, dError * Kd) + clamp(-maxI, maxI, -iError * Ki);
-}
+
 inline
 float PIDcl(const float Error, const float dError, const float iError,
 			const float Kp, const float Kd, const float Ki,
@@ -354,6 +342,35 @@ float signedSqrt(const float val)
   else
   	return sqrt(val);
 }
+
+
+// from wikipedia  (works well enough, usually seems within 1/100 of the correct result for reasonably large numbers i.e > 0.1)
+float sqrt_approx(float z)
+{
+    union
+    {
+        s32 tmp;
+        float f;
+    } u;
+ 
+    u.f = z;
+ 
+    u.tmp -= (s32)1 << 23; 	/* Subtract 2^m. */
+    u.tmp >>= 1; 			/* Divide by 2. */
+    u.tmp += (s32)1 << 29; 	/* Add ((b + 1) / 2) * 2^m. */
+ 
+    return u.f;
+}
+
+inline
+float signedSqrtApprox(const float val)
+{
+  if(val < 0)
+  	return -sqrt_approx(-val);
+  else
+  	return sqrt_approx(val);
+}
+
 
 /*
 // accel (P) and gyro (D) fed directly to the controller
@@ -464,24 +481,6 @@ void calculate_balance(const u08 Thrust, const s08 Yaw, const s08 Pitch, const s
 }
 */
 
-// from wikipedia  (doesn't quite work for large numbers. to be confirmed)
-// could also be an incompatibility with the floating point format implemented for avr
-float sqrt_approx(float z)
-{
-    union
-    {
-        s32 tmp;
-        float f;
-    } u;
- 
-    u.f = z;
- 
-    u.tmp -= (s32)1 << 23; 	/* Subtract 2^m. */
-    u.tmp >>= 1; 			/* Divide by 2. */
-    u.tmp += (s32)1 << 29; 	/* Add ((b + 1) / 2) * 2^m. */
- 
-    return u.f;
-}
 
 
 // gyro and accel , linear mixed
@@ -500,20 +499,43 @@ static float iTilt = 0, iRoll = 0;
 	s16 acc[3];
 	s16 gyro[3];
 
+
+	// read the gyro (read in the background)
+	//
 	u08 dat[6];
 	while(!itg3200_dataReady());
-	itg3200_read_register(ITG3200_REG_GYRO_XOUT_H, dat, 6);
-	for(u08 i = 0; i < 3; ++i) 
-		gyro[i] = (dat[i*2] << 8) | dat[i*2+1];
+	itg3200_read_register_async(ITG3200_REG_GYRO_XOUT_H, dat, 6);
 
+	// read the accel
+	//
 	// todo: pull all 3 regs in one go
-	acc[0] = -(lis3l_GetAccel(0) - accel_0x);
-	acc[1] = (lis3l_GetAccel(1) - accel_0y);
-	acc[2] = lis3l_GetAccel(2);
+
+//	acc[0] = -(lis3l_GetAccel(0) - accel_0x);
+//	acc[1] = (lis3l_GetAccel(1) - accel_0y);
+//	acc[2] = lis3l_GetAccel(2);
+
+	lis3l_GetAccels(acc);
+	acc[0] = -acc[0] + accel_0x;
+	acc[1] =  acc[1] - accel_0y;
+
+
+	// calculate tilt/roll from accel
+	float tilt, roll, yaw;
+	calc_tilt_roll(acc, &tilt, &roll);
+
+
+
+	while(itg3200_isBusy()); // we can only continue once the gyro data has arrived	
+	//for(u08 i = 0; i < 3; ++i) 
+	//	gyro[i] = (dat[i*2] << 8) | dat[i*2+1];
+	gyro[0] = (dat[0] << 8) | dat[1];
+	gyro[1] = (dat[2] << 8) | dat[3];
+	gyro[2] = (dat[4] << 8) | dat[5];
 
 	gyro[0] -= gyro_0x;
 	gyro[1] -= gyro_0y;
 	gyro[2] -= gyro_0z;
+
 
 	// convert sensor data to degrees(/s)
 	float dTilt, dRoll, dYaw;
@@ -525,9 +547,8 @@ static float iTilt = 0, iRoll = 0;
 	accu_tilt -= dTilt * CTRL_DT; // this loop runs at 100Hz
 	accu_roll -= dRoll * CTRL_DT;
 
-	// calculate tilt/roll from accel
-	float tilt, roll, yaw;
-	calc_tilt_roll(acc, &tilt, &roll);
+
+
 
 	gyro_weight = 0.01;
 	float invgw = 1.0f - gyro_weight;
@@ -546,25 +567,19 @@ static float iTilt = 0, iRoll = 0;
 	iTilt += tilt * CTRL_DT;
 	iRoll += roll * CTRL_DT;
 
-//	float resTilt = PID(tilt, dTilt, iTilt, PID_Kp, PID_Kd, PID_Ki, 4000.0f, 3000.0f, 3000.0f);  // clamp to sqrt(4000+3000+3000)=100
-//	float resRoll = PID(roll, dRoll, iRoll, PID_Kp, PID_Kd, PID_Ki, 4000.0f, 3000.0f, 3000.0f);
-	float resTilt = PIDcl(tilt, dTilt, iTilt, PID_Kp, PID_Kd, PID_Ki, 2500.0f);  // clamp to sqrt(2500)=50
-	float resRoll = PIDcl(roll, dRoll, iRoll, PID_Kp, PID_Kd, PID_Ki, 2500.0f);
+//	float resTilt = PIDcl(tilt, dTilt, iTilt, PID_Kp, PID_Kd, PID_Ki, 2500.0f);  // clamp to sqrt(2500)=50
+//	float resRoll = PIDcl(roll, dRoll, iRoll, PID_Kp, PID_Kd, PID_Ki, 2500.0f);
 
-//	float resTilt = PD(tilt, dTilt, PID_Kp, PID_Kd, 5000.0f, 5000.0f);  // clamp to sqrt(2500)=50
-//	float resRoll = PD(roll, dRoll, PID_Kp, PID_Kd, 5000.0f, 5000.0f);
-//	float resYaw  = PD( yaw, dYaw,  PID_Kp_yaw, PID_Kd_yaw, 5000.0f, 5000.0f);
-
-//	float resTilt = PDcl(tilt, dTilt, PID_Kp, PID_Kd, 2500.0f);  // clamp to sqrt(2500)=50
-//	float resRoll = PDcl(roll, dRoll, PID_Kp, PID_Kd, 2500.0f);
+	float resTilt = PDcl(tilt, dTilt, PID_Kp, PID_Kd, 2500.0f);  // clamp to sqrt(2500)=50
+	float resRoll = PDcl(roll, dRoll, PID_Kp, PID_Kd, 2500.0f);
 	float resYaw  = PDcl( yaw, dYaw,  PID_Kp_yaw, PID_Kd_yaw, 2500.0f);
 
 	//response is thrust, thrust = rpm^2
 	// convert thrust to rpm
 	s08 outT, outR, outY;
-	outT = round(signedSqrt(resTilt));  // +-50
-	outR = round(signedSqrt(resRoll));
-	outY = round(signedSqrt(resYaw));
+	outT = round(signedSqrtApprox(resTilt));  // +-50
+	outR = round(signedSqrtApprox(resRoll));
+	outY = round(signedSqrtApprox(resYaw));
 
 	// cross mix motor response
 	s16 a, b, c, d, thr; //rpms
@@ -599,7 +614,8 @@ static float iTilt = 0, iRoll = 0;
 		motorDuty[3] = thr;
 
 		// reset integrator
-		iTilt = iRoll = 0;
+		iTilt = 0;
+		iRoll = 0;
 	}
 	else
 	{
