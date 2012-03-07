@@ -11,17 +11,21 @@
 
 #include "global.h"
 
-
+// comment this out to get rid of all interrupt code, including the Interrupt handler
+#define ITG3200_USE_INTERRUPTS
 
 // prototypes
-
-u08 itg3200_init();
-u08 itg3200_read_register(u08 reg, u08 *value, u08 numBytes);
-u08 itg3200_write_register(u08 reg, u08 *value, u08 numBytes);
-
+void itg3200_i2cInit(u16 bitrateKHz);
+u08  itg3200_init();
+u08  itg3200_write_register(u08 reg, u08 *value, u08 numBytes);
+u08  itg3200_read_register(u08 reg, u08 *value, u08 numBytes);
 inline BOOL itg3200_dataReady()
 {	return (ITG3200_INT_PIN & BT(ITG3200_INT_BIT)); }
 
+#ifdef ITG3200_USE_INTERRUPTS
+void itg3200_read_register_async(u08 reg, u08 *value, u08 numBytes);
+BOOL itg3200_isBusy();
+#endif
 
 
 // device bus address
